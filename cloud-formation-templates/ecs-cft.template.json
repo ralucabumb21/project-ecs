@@ -1,0 +1,256 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Parameters": {
+    "ClusterName": {
+      "Description": "An environment name that is prefixed to resource names",
+      "Type": "String",
+      "Default": "Cat"
+    },
+    "VpcId": {
+      "Description": "The VPC of the ECS Cluster",
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "SubnetIds": {
+      "Description": "Select three private subnets where ECS cluster can be deployed.",
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+    "ALBStackName": {
+      "Description": "Name of an active CloudFormation stack that contains the networking resources, such as the subnet and security group, that will be used in this stack.",
+      "Type": "String",
+      "MinLength": 1,
+      "MaxLength": 255,
+      "AllowedPattern": "^[a-zA-Z][-a-zA-Z0-9]*$",
+      "Default": "Cat-ALB"
+    },
+    "AppName": {
+      "Type": "String",
+      "Description": "Name of app requiring ELB exposure",
+      "Default": "simple-app"
+    },
+    "AppContainerPort": {
+      "Type": "Number",
+      "Description": "Container port of app requiring ELB exposure",
+      "Default": "80"
+    },
+    "ImageRepoTag": {
+      "Type": "String",
+      "Description": "Name of app requiring ELB exposure",
+      "Default": "ralu/server:latest"
+    }
+  },
+  "Rules": {
+    "SubnetsInVPC": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::EachMemberIn": [
+              {
+                "Fn::ValueOfAll": [
+                  "AWS::EC2::Subnet::Id",
+                  "VpcId"
+                ]
+              },
+              {
+                "Fn::RefAll": "AWS::EC2::VPC::Id"
+              }
+            ]
+          },
+          "AssertDescription": "All subnets must exist in the VPC"
+        }
+      ]
+    }
+  },
+  "Resources": {
+    "ECSCluster": {
+      "Type": "AWS::ECS::Cluster",
+      "Properties": {
+        "ClusterName": {
+          "Ref": "ClusterName"
+        }
+      }
+    },
+    "ECSSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "GroupDescription": "Access to the ECS hosts and the tasks/containers that run on them",
+        "SecurityGroupIngress": [
+          {
+            "SourceSecurityGroupId": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${ALBStackName}-LoadBalancerSG"
+              }
+            },
+            "IpProtocol": -1
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ECSCluster}-ECS"
+            }
+          }
+        ]
+      }
+    },
+    "EcsServiceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ecs-tasks.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/AmazonECS_FullAccess",
+          "arn:aws:iam::aws:policy/AWSOpsWorksCloudWatchLogs"
+        ],
+        "RoleName": {
+          "Fn::Sub": "EcsSvcRole-${AWS::StackName}"
+        }
+      }
+    },
+    "ECSLogGroup": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Sub": "ecs/${AWS::StackName}"
+        },
+        "RetentionInDays": 7
+      }
+    },
+    "ECSTaskDefinition": {
+      "Type": "AWS::ECS::TaskDefinition",
+      "DependsOn": [
+        "EcsServiceRole",
+        "ECSLogGroup"
+      ],
+      "Properties": {
+        "ContainerDefinitions": [
+          {
+            "Command": [
+              "/bin/sh -c \"echo '<html> <head> <title>Amazon ECS Sample App</title> <style>body {margin-top: 40px; background-color: #333;} </style> </head><body> <div style=color:white;text-align:center> <h1>Amazon ECS Sample App</h1> <h2>Congratulations!</h2> <p>Your application is now running on a container in Amazon ECS.</p> </div></body></html>' >  /usr/local/apache2/htdocs/index.html && httpd-foreground\""
+            ],
+            "EntryPoint": [
+              "sh",
+              "-c"
+            ],
+            "Essential": true,
+            "Image": {
+              "Ref": "ImageRepoTag"
+            },
+            "LogConfiguration": {
+              "LogDriver": "awslogs",
+              "Options": {
+                "awslogs-group": {
+                  "Ref": "ECSLogGroup"
+                },
+                "awslogs-region": {
+                  "Ref": "AWS::Region"
+                },
+                "awslogs-stream-prefix": "ecs"
+              }
+            },
+            "Name": {
+              "Ref": "AppName"
+            },
+            "PortMappings": [
+              {
+                "ContainerPort": {
+                  "Ref": "AppContainerPort"
+                },
+                "HostPort": 80,
+                "Protocol": "tcp"
+              }
+            ]
+          }
+        ],
+        "Cpu": 256,
+        "ExecutionRoleArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:aws:iam::",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":role/EcsSvcRole-",
+              {
+                "Ref": "AWS::StackName"
+              }
+            ]
+          ]
+        },
+        "Family": "task-definition-cfn",
+        "Memory": 512,
+        "NetworkMode": "awsvpc",
+        "RequiresCompatibilities": [
+          "FARGATE"
+        ],
+        "RuntimePlatform": {
+          "OperatingSystemFamily": "LINUX"
+        }
+      }
+    },
+    "ECSService": {
+      "Type": "AWS::ECS::Service",
+      "Properties": {
+        "ServiceName": "cfn-service",
+        "Cluster": {
+          "Ref": "ECSCluster"
+        },
+        "DesiredCount": 2,
+        "LaunchType": "FARGATE",
+        "LoadBalancers": [
+          {
+            "ContainerName": {
+              "Ref": "AppName"
+            },
+            "ContainerPort": {
+              "Ref": "AppContainerPort"
+            },
+            "LoadBalancerName": {
+              "Ref": "AWS::NoValue"
+            },
+            "TargetGroupArn": {
+              "Fn::ImportValue": {
+                "Fn::Sub": "${ALBStackName}-TargetGroupArn"
+              }
+            }
+          }
+        ],
+        "NetworkConfiguration": {
+          "AwsvpcConfiguration": {
+            "AssignPublicIp": "DISABLED",
+            "SecurityGroups": [
+              {
+                "Ref": "ECSSecurityGroup"
+              }
+            ],
+            "Subnets": {
+              "Ref": "SubnetIds"
+            }
+          }
+        },
+        "TaskDefinition": {
+          "Ref": "ECSTaskDefinition"
+        }
+      }
+    }
+  }
+}
