@@ -1,0 +1,112 @@
+{
+"AWSTemplateFormatVersion" : "2010-09-09",
+
+"Description" : "This CFT deploys an ALB with 1 HTTP Listener",
+  "Parameters":{
+    "ALBName":{
+      "Description":"The name of ALB",
+      "Default": "MyALB",
+      "Type":"String"
+    },
+    "Subnets":{
+      "Type":"CommaDelimitedList",
+      "Description":"At least two public subnets in different AZs in the selected VPC"
+    },
+    "VpcId":{
+      "Type":"AWS::EC2::VPC::Id",
+      "Description":"A VPC that enables resources in public subnets to connect to the internet"
+    },
+    "AppContainerPort": {
+      "Type": "Number",
+      "Description": "Container port of app requiring ELB exposure",
+      "Default": "80"
+    }
+  },
+
+  "Resources" : {
+    "ALBSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VpcId"
+        },
+        "GroupDescription": "Access to the load balancer that sits in front of ECS",
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": -1
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Sub": "${ALBName}-sg"
+            }
+          }
+        ]
+      }
+    },
+      "TargetGroup": {
+        "Type": "AWS::ElasticLoadBalancingV2::TargetGroup",
+        "Properties": {
+          "HealthCheckProtocol": "HTTP",
+          "Name": {"Fn::Sub": "${ALBName}-tg"},
+          "Port": {"Ref": "AppContainerPort"},
+          "Protocol": "HTTP",
+          "UnhealthyThresholdCount": 3,
+          "TargetType": "ip",
+          "VpcId": {
+            "Ref": "VpcId"
+          }
+        }
+      },
+      "ALBListener": {
+        "Type": "AWS::ElasticLoadBalancingV2::Listener",
+        "Properties": {
+          "DefaultActions": [
+            {
+              "Type": "forward",
+              "TargetGroupArn": {
+                "Ref": "TargetGroup"
+              }
+            }
+          ],
+          "LoadBalancerArn": {
+            "Ref": "ApplicationLoadBalancer"
+          },
+          "Port": 80,
+          "Protocol": "HTTP"
+        }
+      },
+      "ApplicationLoadBalancer": {
+        "DependsOn": ["ALBSecurityGroup"],
+        "Type": "AWS::ElasticLoadBalancingV2::LoadBalancer",
+        "Properties": {
+          "Subnets": {
+            "Ref": "Subnets"
+          },
+          "Type": "application",
+          "Scheme": "internet-facing",
+          "SecurityGroups": [{"Ref":  "ALBSecurityGroup"}]
+        }
+      }
+  },
+    "Outputs": {
+      "ALBName": {
+        "Description": "ALB ARN",
+        "Value":{"Fn::GetAtt": ["ApplicationLoadBalancer","LoadBalancerName"]},
+        "Export" : { "Name" : {"Fn::Sub": "${AWS::StackName}-LoadBalancerName" }}
+      },
+      "ALBSecurityGroup": {
+        "Description": "ALB SG",
+        "Value": {"Ref": "ALBSecurityGroup"},
+        "Export" : { "Name" : {"Fn::Sub": "${AWS::StackName}-LoadBalancerSG" }}
+      },
+      "TargetGroupARN": {
+        "Description": "TG ARN",
+        "Value":{"Fn::GetAtt": ["TargetGroup","TargetGroupArn"]},
+        "Export" : { "Name" : {"Fn::Sub": "${AWS::StackName}-TargetGroupArn" }}
+      }
+    }
+  }
