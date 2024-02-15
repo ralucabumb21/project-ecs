@@ -26,12 +26,12 @@ The CIDR ranges are passed as parameters to the template.
 You can adjust them with the desired ranges. If not, the above defaults will be used
 
 ### Build Docker image and upload to AWS Elastic Container Registry
-Copy your Dockerfile to project/scripts or use the existing Dockerfile
+Copy your Dockerfile to project-ecs/scripts or use the existing Dockerfile
 
 Execute the `upload_to_ecr.sh <repository_name> <tag>` to build and upload the Docker image to AWS ECR.
  
 For example:
-```/project/scripts/upload_to_ecr.sh ralu/server latest```
+```/project-ecs/scripts/upload_to_ecr.sh ralu/server latest```
 
 ***NOTE: Please make sure you have docker installed.***
 
