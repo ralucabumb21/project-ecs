@@ -1,6 +1,7 @@
 # Deploy and maintain a web server using Amazon Web Services
 
 ## Overview
+![AWS-Project-Diagram](https://github.com/ralucabumb21/project-ecs/assets/50323787/bf414ef0-1b32-4264-9ab4-f916880df271)
 
 
 The repository consists of a set of nested templates that deploy the following:
